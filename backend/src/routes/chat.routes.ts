@@ -3,9 +3,9 @@ import { authenticateToken, AuthRequest } from '../middleware/auth.middleware';
 import { z } from 'zod';
 import { io } from '../server';
 import { userSockets } from '../socket/socket.handler';
+import db from '../config/database';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // All routes require authentication
 router.use(authenticateToken);

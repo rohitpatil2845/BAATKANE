@@ -3,9 +3,9 @@ import { authenticateToken, AuthRequest } from '../middleware/auth.middleware';
 import { z } from 'zod';
 import path from 'path';
 import fs from 'fs';
+import db from '../config/database';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 router.use(authenticateToken);
 

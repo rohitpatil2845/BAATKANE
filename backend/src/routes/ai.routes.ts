@@ -2,10 +2,9 @@ import { Router } from 'express';
 import { authenticateToken, AuthRequest } from '../middleware/auth.middleware';
 import { z } from 'zod';
 import OpenAI from 'openai';
-import { PrismaClient } from '@prisma/client';
+import db from '../config/database';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Initialize OpenAI (will be null if API key not provided)
 let openai: OpenAI | null = null;

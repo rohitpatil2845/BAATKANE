@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { authenticateToken, AuthRequest } from '../middleware/auth.middleware';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import db from '../config/database';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 router.use(authenticateToken);
 

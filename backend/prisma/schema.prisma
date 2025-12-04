@@ -1,0 +1,102 @@
+// Prisma Schema for BaatKare Chat App
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  avatar       String?
+  status       String   @default("Hey there! I'm using BaatKare")
+  lastSeen     DateTime @default(now()) @map("last_seen")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  messages      Message[]
+  chatMembers   ChatMember[]
+  messageReads  MessageRead[]
+  createdChats  Chat[]        @relation("ChatAdmin")
+
+  @@map("users")
+}
+
+model Chat {
+  id          String   @id @default(uuid())
+  isGroup     Boolean  @default(false) @map("is_group")
+  groupName   String?  @map("group_name")
+  groupIcon   String?  @map("group_icon")
+  description String?
+  adminId     String?  @map("admin_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  admin       User?         @relation("ChatAdmin", fields: [adminId], references: [id])
+  members     ChatMember[]
+  messages    Message[]
+
+  @@map("chats")
+}
+
+model ChatMember {
+  id        String   @id @default(uuid())
+  chatId    String   @map("chat_id")
+  userId    String   @map("user_id")
+  role      String   @default("member") // "admin" or "member"
+  isMuted   Boolean  @default(false) @map("is_muted")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  // Relations
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@map("chat_members")
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  chatId    String   @map("chat_id")
+  userId    String   @map("user_id")
+  content   String
+  type      String   @default("text") // "text", "image", "file", "voice", "emoji"
+  fileUrl   String?  @map("file_url")
+  fileName  String?  @map("file_name")
+  fileSize  Int?     @map("file_size")
+  isPinned  Boolean  @default(false) @map("is_pinned")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  replyTo   String?  @map("reply_to") // Message ID being replied to
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  chat         Chat          @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageReads MessageRead[]
+
+  @@index([chatId, createdAt])
+  @@map("messages")
+}
+
+model MessageRead {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  userId    String   @map("user_id")
+  readAt    DateTime @default(now()) @map("read_at")
+
+  // Relations
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@map("message_reads")
+}

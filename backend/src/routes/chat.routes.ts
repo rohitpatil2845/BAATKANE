@@ -4,7 +4,7 @@ import { z } from 'zod';
 import db from '../config/database';
 import { randomUUID } from 'crypto';
 import { io } from '../server';
-import { userSockets } from '../socket/socket.handler.new';
+import { userSockets } from '../socket/socket.handler';
 
 const router = Router();
 

@@ -11,14 +11,14 @@ dotenv.config();
 
 // Import routes
 import authRoutes from './routes/auth.routes';
-import chatRoutes from './routes/chat.routes.new';
-import messageRoutes from './routes/message.routes.new';
-import userRoutes from './routes/user.routes.new';
+import chatRoutes from './routes/chat.routes';
+import messageRoutes from './routes/message.routes';
+import userRoutes from './routes/user.routes';
 import profileRoutes from './routes/profile.routes';
 import scheduledMessagesRoutes from './routes/scheduled-messages.routes';
 
 // Import socket handler and services
-import { initializeSocket } from './socket/socket.handler.new';
+import { initializeSocket } from './socket/socket.handler';
 import { startScheduledMessagesCron } from './services/scheduled-messages.service';
 import { initializeSmartBot } from './config/init-smartbot';
 

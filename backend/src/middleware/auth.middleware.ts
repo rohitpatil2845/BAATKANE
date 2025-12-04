@@ -6,6 +6,10 @@ import db from '../config/database';
 export interface AuthRequest extends Request {
   userId?: string;
   user?: any;
+  body: any;
+  params: any;
+  query: any;
+  headers: any;
 }
 
 export const authenticateToken = async (

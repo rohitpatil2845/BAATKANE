@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
 import db from '../config/database';
 
+// Extend Express Request to include auth properties
 export interface AuthRequest extends Request {
   userId?: string;
   user?: any;

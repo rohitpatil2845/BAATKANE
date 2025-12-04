@@ -23,7 +23,6 @@ async function addJoinRequestsTable() {
     await db.query('CREATE INDEX idx_join_requests_status ON join_requests(status)').catch(() => {});
     
     console.log('✅ Join requests table created successfully');
-    await db.end();
     process.exit(0);
   } catch (error) {
     console.error('❌ Error:', error);

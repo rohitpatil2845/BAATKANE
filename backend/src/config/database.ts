@@ -11,6 +11,8 @@ const pool = new Pool({
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
+  // Force IPv4 to avoid IPv6 connectivity issues on Render
+  host: process.env.NODE_ENV === 'production' ? 'aws-0-us-west-2.pooler.supabase.com' : undefined,
 });
 
 // Override NODE_TLS_REJECT_UNAUTHORIZED for Supabase

@@ -1,88 +1,123 @@
 import { Router } from 'express';
 import { authenticateToken, AuthRequest } from '../middleware/auth.middleware';
 import { z } from 'zod';
-import path from 'path';
-import fs from 'fs';
 import db from '../config/database';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 
 router.use(authenticateToken);
 
-// Send message
-const sendMessageSchema = z.object({
-  chatId: z.string(),
-  content: z.string(),
-  type: z.enum(['text', 'image', 'file', 'voice', 'emoji']).default('text'),
-  replyTo: z.string().optional(),
-});
-
-router.post('/', async (req: AuthRequest, res) => {
+// Get messages for a chat
+router.get('/:chatId', async (req: AuthRequest, res) => {
   try {
+    const { chatId } = req.params;
     const userId = req.userId!;
-    const { chatId, content, type, replyTo } = sendMessageSchema.parse(req.body);
 
-    // Verify user is member of chat
-    const chatMember = await prisma.chatMember.findUnique({
-      where: {
-        chatId_userId: { chatId, userId },
-      },
-    });
+    // Verify user is member
+    const [membership] = await db.query(
+      'SELECT * FROM chat_members WHERE chat_id = ? AND user_id = ?',
+      [chatId, userId]
+    );
 
-    if (!chatMember) {
+    if ((membership as any[]).length === 0) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Handle file upload if present
-    let fileUrl = null;
-    let fileName = null;
-    let fileSize = null;
+    const [messages] = await db.query(
+      `SELECT 
+        m.*,
+        u.id as user_id, u.name as user_name, u.username, u.avatar
+       FROM messages m
+       JOIN users u ON m.user_id = u.id
+       WHERE m.chat_id = ?
+       ORDER BY m.created_at ASC`,
+      [chatId]
+    );
 
-    if (req.files && req.files.file) {
-      const file: any = req.files.file;
-      const uploadDir = process.env.UPLOAD_DIR || './uploads';
-      
-      // Create upload directory if not exists
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
+    const formattedMessages = (messages as any[]).map(m => ({
+      id: m.id,
+      chatId: m.chat_id,
+      userId: m.user_id,
+      content: m.content,
+      type: m.type,
+      fileUrl: m.file_url,
+      fileName: m.file_name,
+      isPinned: Boolean(m.is_pinned),
+      isDeleted: Boolean(m.is_deleted),
+      replyTo: m.reply_to,
+      createdAt: m.created_at,
+      user: {
+        id: m.user_id,
+        name: m.user_name,
+        username: m.username,
+        avatar: m.avatar
       }
+    }));
 
-      const uniqueName = `${Date.now()}-${file.name}`;
-      const filePath = path.join(uploadDir, uniqueName);
-      
-      await file.mv(filePath);
-      
-      fileUrl = `/uploads/${uniqueName}`;
-      fileName = file.name;
-      fileSize = file.size;
-    }
+    res.json({ messages: formattedMessages });
+  } catch (error) {
+    console.error('Get messages error:', error);
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
 
-    // Create message
-    const message = await prisma.message.create({
-      data: {
-        chatId,
-        userId,
-        content,
-        type,
-        fileUrl,
-        fileName,
-        fileSize,
-        replyTo,
-      },
-      include: {
-        user: {
-          select: { id: true, name: true, avatar: true },
-        },
-      },
-    });
+// Send message
+const sendMessageSchema = z.object({
+  content: z.string().min(1),
+  type: z.string().default('text'),
+  fileUrl: z.string().optional(),
+  fileName: z.string().optional(),
+  replyTo: z.string().optional(),
+});
 
-    // Update chat updated_at
-    await prisma.chat.update({
-      where: { id: chatId },
-      data: { updatedAt: new Date() },
-    });
+router.post('/:chatId', async (req: AuthRequest, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.userId!;
+    const { content, type, fileUrl, fileName, replyTo } = sendMessageSchema.parse(req.body);
 
-    res.status(201).json({ message });
+    const messageId = randomUUID();
+
+    await db.query(
+      `INSERT INTO messages (id, chat_id, user_id, content, type, file_url, file_name, reply_to) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [messageId, chatId, userId, content, type, fileUrl || null, fileName || null, replyTo || null]
+    );
+
+    // Get created message with user info
+    const [messages] = await db.query(
+      `SELECT 
+        m.*,
+        u.id as user_id, u.name as user_name, u.username, u.avatar
+       FROM messages m
+       JOIN users u ON m.user_id = u.id
+       WHERE m.id = ?`,
+      [messageId]
+    );
+
+    const message = (messages as any[])[0];
+    const formattedMessage = {
+      id: message.id,
+      chatId: message.chat_id,
+      userId: message.user_id,
+      content: message.content,
+      type: message.type,
+      fileUrl: message.file_url,
+      fileName: message.file_name,
+      isPinned: Boolean(message.is_pinned),
+      isDeleted: Boolean(message.is_deleted),
+      replyTo: message.reply_to,
+      createdAt: message.created_at,
+      user: {
+        id: message.user_id,
+        name: message.user_name,
+        username: message.username,
+        avatar: message.avatar
+      }
+    };
+
+    res.status(201).json({ message: formattedMessage });
   } catch (error) {
     console.error('Send message error:', error);
     if (error instanceof z.ZodError) {
@@ -98,91 +133,113 @@ router.post('/:messageId/read', async (req: AuthRequest, res) => {
     const { messageId } = req.params;
     const userId = req.userId!;
 
-    await prisma.messageRead.upsert({
-      where: {
-        messageId_userId: { messageId, userId },
-      },
-      create: {
-        messageId,
-        userId,
-      },
-      update: {
-        readAt: new Date(),
-      },
-    });
+    // Check if already read
+    const [existing] = await db.query(
+      'SELECT * FROM message_reads WHERE message_id = ? AND user_id = ?',
+      [messageId, userId]
+    );
+
+    if ((existing as any[]).length === 0) {
+      const readId = randomUUID();
+      await db.query(
+        'INSERT INTO message_reads (id, message_id, user_id) VALUES (?, ?, ?)',
+        [readId, messageId, userId]
+      );
+    }
 
     res.json({ message: 'Message marked as read' });
   } catch (error) {
     console.error('Mark read error:', error);
-    res.status(500).json({ error: 'Failed to mark message as read' });
+    res.status(500).json({ error: 'Failed to mark as read' });
   }
 });
 
-// Delete message
-router.delete('/:messageId', async (req: AuthRequest, res) => {
+// Get message read receipts
+router.get('/:messageId/reads', async (req: AuthRequest, res) => {
+  try {
+    const { messageId } = req.params;
+
+    const [reads] = await db.query(
+      `SELECT mr.read_at, u.id, u.name, u.username, u.avatar
+       FROM message_reads mr
+       JOIN users u ON mr.user_id = u.id
+       WHERE mr.message_id = ?`,
+      [messageId]
+    );
+
+    res.json({
+      reads: (reads as any[]).map(r => ({
+        userId: r.id,
+        userName: r.name,
+        username: r.username,
+        avatar: r.avatar,
+        readAt: r.read_at
+      }))
+    });
+  } catch (error) {
+    console.error('Get reads error:', error);
+    res.status(500).json({ error: 'Failed to get read receipts' });
+  }
+});
+
+// Forward message
+router.post('/:messageId/forward', async (req: AuthRequest, res) => {
   try {
     const { messageId } = req.params;
     const userId = req.userId!;
+    const { targetChatIds } = req.body;
 
-    const message = await prisma.message.findUnique({
-      where: { id: messageId },
-    });
-
-    if (!message || message.userId !== userId) {
-      return res.status(403).json({ error: 'Cannot delete this message' });
+    if (!Array.isArray(targetChatIds) || targetChatIds.length === 0) {
+      return res.status(400).json({ error: 'Target chat IDs required' });
     }
 
-    await prisma.message.update({
-      where: { id: messageId },
-      data: { isDeleted: true, content: 'This message was deleted' },
-    });
+    // Get original message
+    const [messages] = await db.query(
+      'SELECT * FROM messages WHERE id = ?',
+      [messageId]
+    );
 
-    res.json({ message: 'Message deleted' });
-  } catch (error) {
-    console.error('Delete message error:', error);
-    res.status(500).json({ error: 'Failed to delete message' });
-  }
-});
-
-// Pin/unpin message
-router.patch('/:messageId/pin', async (req: AuthRequest, res) => {
-  try {
-    const { messageId } = req.params;
-    const userId = req.userId!;
-    const { isPinned } = z.object({ isPinned: z.boolean() }).parse(req.body);
-
-    const message = await prisma.message.findUnique({
-      where: { id: messageId },
-      include: { chat: true },
-    });
-
-    if (!message) {
+    if ((messages as any[]).length === 0) {
       return res.status(404).json({ error: 'Message not found' });
     }
 
-    // Verify user is admin for group chats
-    if (message.chat.isGroup) {
-      const chatMember = await prisma.chatMember.findUnique({
-        where: {
-          chatId_userId: { chatId: message.chatId, userId },
-        },
-      });
+    const originalMessage = (messages as any[])[0];
 
-      if (!chatMember || chatMember.role !== 'admin') {
-        return res.status(403).json({ error: 'Only admins can pin messages' });
+    // Forward to each target chat
+    const forwardedMessages = [];
+    for (const chatId of targetChatIds) {
+      // Verify user is member
+      const [membership] = await db.query(
+        'SELECT * FROM chat_members WHERE chat_id = ? AND user_id = ?',
+        [chatId, userId]
+      );
+
+      if ((membership as any[]).length > 0) {
+        const newMessageId = randomUUID();
+        await db.query(
+          `INSERT INTO messages (id, chat_id, user_id, content, type, file_url, file_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            newMessageId,
+            chatId,
+            userId,
+            originalMessage.content,
+            originalMessage.type,
+            originalMessage.file_url,
+            originalMessage.file_name
+          ]
+        );
+
+        forwardedMessages.push({ chatId, messageId: newMessageId });
       }
     }
 
-    await prisma.message.update({
-      where: { id: messageId },
-      data: { isPinned },
-    });
-
-    res.json({ message: `Message ${isPinned ? 'pinned' : 'unpinned'}` });
+    res.json({ message: 'Message forwarded', forwardedMessages });
   } catch (error) {
-    console.error('Pin message error:', error);
-    res.status(500).json({ error: 'Failed to pin message' });
+    console.error('Forward message error:', error);
+    res.status(500).json({ error: 'Failed to forward message' });
   }
 });
 
 export default router;
+
